@@ -71,13 +71,13 @@ implementation does not address it.
 
 In the Go code continue to import lib as usual:
 
-  import "golang.org/x/oauth2/google"
+    import "golang.org/x/oauth2/google"
 
 But in the `go.mod` put line like following (to replace ustream lib with forked one):
 
-  replace golang.org/x/oauth2 v0.x.x => github.com/nikolay-turpitko/oauth2 v0.0.0-xxxx-xxxx
+    replace golang.org/x/oauth2 v0.x.x => github.com/nikolay-turpitko/oauth2 v0.0.0-xxxx-xxxx
 
 Where version of upstream and fork libs should be replaced with current ones.
 To obtain current version for above line execute the followning CLI command:
 
-  go list -m github.com/nikolay-turpitko/oauth2@latest
+    go list -m github.com/nikolay-turpitko/oauth2@latest
