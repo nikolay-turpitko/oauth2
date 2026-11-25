@@ -8,11 +8,15 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/oauth2"
@@ -314,5 +318,78 @@ func TestTokenRetrieveError(t *testing.T) {
 	expected := fmt.Sprintf("oauth2: cannot fetch token: %v\nResponse: %s", "400 Bad Request", `{"error": "invalid_grant"}`)
 	if errStr := err.Error(); errStr != expected {
 		t.Fatalf("got %#v, expected %#v", errStr, expected)
+	}
+}
+
+// truncatedBodyServer answers 200 with a Content-Length longer than the body
+// it sends, then closes the connection: reading the body gives
+// io.ErrUnexpectedEOF.
+func truncatedBodyServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, bufrw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		defer conn.Close()
+		bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{")
+		bufrw.Flush()
+	}))
+}
+
+func TestJWTFetch_TransportErrorIsWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts.Close() // connection refused
+	conf := &Config{
+		Email:      "aaa@xxx.com",
+		PrivateKey: dummyPrivateKey,
+		TokenURL:   ts.URL,
+	}
+	_, err := conf.TokenSource(context.Background()).Token()
+	if err == nil {
+		t.Fatal("got a token; expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "oauth2: cannot fetch token: ") {
+		t.Errorf("error = %q; want prefix %q", err, "oauth2: cannot fetch token: ")
+	}
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		t.Errorf("error %v (%T) does not wrap *url.Error", err, err)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Errorf("error %v does not wrap ECONNREFUSED", err)
+	}
+}
+
+func TestJWTFetch_BodyReadErrorIsWrapped(t *testing.T) {
+	ts := truncatedBodyServer(t)
+	defer ts.Close()
+	conf := &Config{
+		Email:      "aaa@xxx.com",
+		PrivateKey: dummyPrivateKey,
+		TokenURL:   ts.URL,
+	}
+	_, err := conf.TokenSource(context.Background()).Token()
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("error = %v; want it to wrap io.ErrUnexpectedEOF", err)
+	}
+}
+
+func TestJWTFetch_DecodeErrorIsWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":123, "scope": "user", "token_type": "bearer"}`))
+	}))
+	defer ts.Close()
+	conf := &Config{
+		Email:      "aaa@xxx.com",
+		PrivateKey: dummyPrivateKey,
+		TokenURL:   ts.URL,
+	}
+	_, err := conf.TokenSource(context.Background()).Token()
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) {
+		t.Errorf("error = %v; want it to wrap *json.UnmarshalTypeError", err)
 	}
 }

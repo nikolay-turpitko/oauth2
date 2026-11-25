@@ -132,12 +132,12 @@ func (js jwtSource) Token() (*oauth2.Token, error) {
 	v.Set("assertion", payload)
 	resp, err := hc.PostForm(js.conf.TokenURL, v)
 	if err != nil {
-		return nil, fmt.Errorf("oauth2: cannot fetch token: %v", err)
+		return nil, fmt.Errorf("oauth2: cannot fetch token: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, fmt.Errorf("oauth2: cannot fetch token: %v", err)
+		return nil, fmt.Errorf("oauth2: cannot fetch token: %w", err)
 	}
 	if c := resp.StatusCode; c < 200 || c > 299 {
 		return nil, &oauth2.RetrieveError{
@@ -151,7 +151,7 @@ func (js jwtSource) Token() (*oauth2.Token, error) {
 		IDToken string `json:"id_token"`
 	}
 	if err := json.Unmarshal(body, &tokenRes); err != nil {
-		return nil, fmt.Errorf("oauth2: cannot fetch token: %v", err)
+		return nil, fmt.Errorf("oauth2: cannot fetch token: %w", err)
 	}
 	token := &oauth2.Token{
 		AccessToken: tokenRes.AccessToken,

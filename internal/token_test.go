@@ -6,6 +6,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -118,5 +119,23 @@ func TestAuthStyleCache(t *testing.T) {
 				t.Fatalf("auth style mismatch, got=%v, want=%v", got, tt.style)
 			}
 		})
+	}
+}
+
+func TestRetrieveToken_BodyReadErrorIsWrapped(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, bufrw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		defer conn.Close()
+		bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{")
+		bufrw.Flush()
+	}))
+	defer ts.Close()
+	_, err := RetrieveToken(context.Background(), "client-id", "", ts.URL, url.Values{}, AuthStyleInParams, new(AuthStyleCache))
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("RetrieveToken error = %v; want it to wrap io.ErrUnexpectedEOF", err)
 	}
 }
